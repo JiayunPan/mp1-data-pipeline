@@ -1,3 +1,4 @@
+
 from pathlib import Path
 
 import logging
@@ -15,25 +16,44 @@ def load_csv(filepath):
     """Load a CSV file into a DataFrame.
     filepath is a Path object.
     """
-    pass
+    df = pd.read_csv(filepath)
+    logger.info("Loaded CSV file: %s (%s rows)", filepath, len(df))
+    return df
 
 
 def load_json(filepath):
     """Load a JSON file into a Python object (dict or list).
     filepath is a Path object.
     """
-    pass
+    with open(filepath, "r") as f:
+        data = json.load(f)
+    logger.info("Loaded JSON file: %s", filepath)
+    return data
 
 
 def load_yaml(filepath):
     """Load a YAML file into a Python object.
     filepath is a Path object.
     """
-    pass
+    with open(filepath, "r") as f:
+        data = yaml.safe_load(f)
+    logger.info("Loaded YAML file: %s", filepath)
+    return data
 
 
 def load_data(filepath):
     """Load a file based on its extension.
     filepath is a string, such as 'fixtures/sample.csv'
     """
-    pass
+    path = Path(filepath)
+    suffix = path.suffix.lower()
+
+    if suffix == ".csv":
+        return load_csv(path)
+    elif suffix == ".json":
+        return load_json(path)
+    elif suffix == ".yaml":
+        return load_yaml(path)
+    else:
+        logger.error("Unsupported file format: %s", suffix)
+        raise ValueError(f"Unsupported file format: {suffix}")
