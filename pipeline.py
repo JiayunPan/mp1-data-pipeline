@@ -1,17 +1,20 @@
 """
-Data Processing Pipeline - CLI Template
+Data Processing Pipeline - CLI
 
 DS 3500 - MP1
 
 Usage:
-    python pipeline.py --input data.csv --output clean.csv
-    python pipeline.py --input data.csv --output results.json --format json --verbose
+    python pipeline.py --input fixtures/sample.csv --output clean.csv --config config.yaml
+    python pipeline.py --input fixtures/sample.csv --output clean.csv --config config.yaml --verbose
 """
-from data_loaders import load_data
+
 import argparse
 import logging
 import sys
 from pathlib import Path
+
+from data_loaders import load_data
+from data_processor import process_data, create_cleaning_report
 
 
 logger = logging.getLogger(__name__)
@@ -19,89 +22,74 @@ logger = logging.getLogger(__name__)
 
 def setup_logging(verbose: bool = False) -> None:
     """Configure logging for the pipeline."""
-    # 根据 verbose 决定门槛(level)：True→DEBUG(显示全部)，False→INFO(挡住DEBUG)
     level = logging.DEBUG if verbose else logging.INFO
-
-    # 配置日志系统：设定门槛 + 每条消息的排版格式
     logging.basicConfig(
         level=level,
-        format="%(asctime)s %(levelname)-8s %(message)s",  # 时间 等级 消息
-        datefmt="%H:%M:%S",  # 时间只显示 时:分:秒
+        format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+        datefmt="%H:%M:%S",
     )
 
 
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments."""
-    # 创建一个"点单员"，description 是这个程序的简介
     parser = argparse.ArgumentParser(description="A command-line data pipeline.")
-
-    # --input / -i：必填，输入文件路径
-    parser.add_argument(
-        "--input", "-i",
-        required=True,
-        help="Path to the input file",
-    )
-
-    # --output / -o：必填，输出文件路径
-    parser.add_argument(
-        "--output", "-o",
-        required=True,
-        help="Path to the output file",
-    )
-
-    # --format：可选，只能填 csv 或 json，默认 csv
-    parser.add_argument(
-        "--format",
-        choices=["csv", "json"],
-        default="csv",
-        help="Output format: csv or json (default: csv)",
-    )
-
-    # --verbose / -v：可选开关，写了就是 True，不写就是 False
-    parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose logging",
-    )
-
-    # 让点单员真正去读用户敲的参数，把结果打包返回
+    parser.add_argument("--input", "-i", required=True, help="Path to the input file")
+    parser.add_argument("--config", "-c", required=True, help="Path to the YAML configuration file")
+    parser.add_argument("--output", "-o", required=True, help="Path to the output file")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
     return parser.parse_args()
 
 
 def validate_input(filepath: str) -> bool:
     """Check whether the input path exists and is a file."""
-    # 问一句：这个路径是不是一个真实存在的文件？
     if Path(filepath).is_file():
-        # 是 → 记一条 INFO 日志，返回 True
         logger.info("Input file validated: %s", filepath)
         return True
-    # 不是 → 记一条 ERROR 日志，返回 False
     logger.error("Input file not found: %s", filepath)
     return False
 
 
 def main() -> None:
     """Main pipeline function."""
-    # 1. 读命令行参数，拿到那张"订单卡"
     args = parse_arguments()
-
-    # 2. 根据 --verbose 配置日志系统
     setup_logging(args.verbose)
-
-    # 3. 把读到的参数用 DEBUG 级别记下来（方便排查）
     logger.debug(
-        "Arguments parsed: input=%s, output=%s, format=%s",
-        args.input, args.output, args.format,
+        "Arguments parsed: input=%s, output=%s, config=%s",
+        args.input, args.output, args.config,
     )
 
-    # 4. 验证输入文件是否存在
-    # 5. 无效就以状态码 1 退出
+    # 1. 验证输入文件 + 配置文件（任一不存在就退出）
     if not validate_input(args.input):
         sys.exit(1)
+    if not validate_input(args.config):
+        sys.exit(1)
+
+    # 2. 加载输入数据和配置（同一个 try，捕获不支持格式的 ValueError）
     try:
         data = load_data(args.input)
+        config = load_data(args.config)
     except ValueError:
         sys.exit(1)
+
+    # 3. 先存一份原始数据副本（用来对比、生成清洗报告）
+    original = data.copy()
+
+    # 4. 处理数据（单独的 try；process_data 内部抛的异常在这里兜底）
+    try:
+        cleaned = process_data(data, config)
+    except ValueError:
+        sys.exit(1)
+
+    # 5. 记录处理结果
+    report = create_cleaning_report(original, cleaned)
+    logger.info("Processing complete: %d → %d rows", len(original), len(cleaned))
+
+    # 6. 保存清洗后的数据为 CSV（不带 index 行号）+ 记录保存结果
+    cleaned.to_csv(args.output, index=False)
+    logger.info("Saved cleaned data to %s", args.output)
+
+    # 7. 打印清洗报告
+    print(report)
 
 
 if __name__ == "__main__":
