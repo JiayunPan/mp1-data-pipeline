@@ -100,4 +100,16 @@ def process_data(df, config):
 
 def create_cleaning_report(df_before, df_after):
     """Return a dictionary summarizing the cleaning results."""
-    pass
+    rows_before = len(df_before)
+    rows_after = len(df_after)
+    columns_before = len(df_before.columns)
+    columns_after = len(df_after.columns)
+
+    return {
+        "rows_before": rows_before,
+        "rows_after": rows_after,
+        "rows_removed": rows_before - rows_after,
+        "columns_before": columns_before,
+        "columns_after": columns_after,
+        "columns_removed": columns_before - columns_after,
+    }
