@@ -4,30 +4,25 @@ Data Processing Pipeline - CLI
 DS 3500 - MP1
 
 Usage:
-    python pipeline.py --input fixtures/sample.csv --output clean.csv --config config.yaml
-    python pipeline.py --input fixtures/sample.csv --output clean.csv --config config.yaml --verbose
+    python pipeline.py --input fixtures/sample_data.csv --output output/clean.csv --config config/config.yaml --verbose
 """
 
 import argparse
 import logging
 import sys
-from pathlib import Path
 
-from data_loaders import load_data
-from data_processor import process_data, create_cleaning_report
+from src import (
+    create_cleaning_report,
+    load_data,
+    process_data,
+    save_data,
+    setup_logging,
+    validate_dataframe,
+    validate_input,
+)
 
 
 logger = logging.getLogger(__name__)
-
-
-def setup_logging(verbose: bool = False) -> None:
-    """Configure logging for the pipeline."""
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
-        datefmt="%H:%M:%S",
-    )
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -40,15 +35,6 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def validate_input(filepath: str) -> bool:
-    """Check whether the input path exists and is a file."""
-    if Path(filepath).is_file():
-        logger.info("Input file validated: %s", filepath)
-        return True
-    logger.error("Input file not found: %s", filepath)
-    return False
-
-
 def main() -> None:
     """Main pipeline function."""
     args = parse_arguments()
@@ -58,37 +44,46 @@ def main() -> None:
         args.input, args.output, args.config,
     )
 
-    # 1. 验证输入文件 + 配置文件（任一不存在就退出）
+    # 1. 验证输入文件 + 配置文件
     if not validate_input(args.input):
         sys.exit(1)
     if not validate_input(args.config):
         sys.exit(1)
 
-    # 2. 加载输入数据和配置（同一个 try，捕获不支持格式的 ValueError）
+    # 2. 加载输入数据和配置
     try:
         data = load_data(args.input)
         config = load_data(args.config)
     except ValueError:
         sys.exit(1)
 
-    # 3. 先存一份原始数据副本（用来对比、生成清洗报告）
-    original = data.copy()
+    # 3. 从配置读取验证所需的列设置
+    validation = config["validation"]
+    required_columns = validation["required_columns"]
+    numeric_columns = validation["numeric_columns"]
 
-    # 4. 处理数据（单独的 try；process_data 内部抛的异常在这里兜底）
+    # 4. 验证数据（单独的 try；validate_dataframe 抛的异常在这里兜底）
     try:
-        cleaned = process_data(data, config)
+        validated = validate_dataframe(data, required_columns, numeric_columns)
     except ValueError:
         sys.exit(1)
+    logger.info("Validation complete: %d → %d rows", len(data), len(validated))
 
-    # 5. 记录处理结果
-    report = create_cleaning_report(original, cleaned)
+    # 5. 处理数据（用验证后的 validated）
+    original = validated.copy()
+    try:
+        cleaned = process_data(validated, config)
+    except ValueError:
+        sys.exit(1)
     logger.info("Processing complete: %d → %d rows", len(original), len(cleaned))
 
-    # 6. 保存清洗后的数据为 CSV（不带 index 行号）+ 记录保存结果
-    cleaned.to_csv(args.output, index=False)
+    # 6. 保存清洗后的数据
+    save_data(cleaned, args.output)
     logger.info("Saved cleaned data to %s", args.output)
 
-    # 7. 打印清洗报告
+    # 7. 生成并打印清洗报告（放在 main 最后）
+    report = create_cleaning_report(original, cleaned)
+    print("\nCleaning report:")
     print(report)
 
 
